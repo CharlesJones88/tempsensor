@@ -15,8 +15,9 @@ import traceback
 from datetime import datetime
 import Adafruit_CharLCD as LCD
 
+cwd = os.getcwd()
 # Setup logging
-logging.basicConfig(filename='/usr/bin/tempsensor/sensor.log', filemode='w', level=logging.DEBUG)
+logging.basicConfig(filename='{}/sensor.log'.format(cwd), filemode='w', level=logging.DEBUG)
 
 # Raspberry Pi configuration:
 lcd_rs = 27
@@ -39,9 +40,9 @@ lcd = LCD.Adafruit_RGBCharLCD(lcd_rs, lcd_en, lcd_d4, lcd_d5, lcd_d6, lcd_d7,
                               enable_pwm=True)
 
 # Get saved settings
-config = "/usr/bin/tempsensor/config"
+config = "{}}/config".format(cwd)
 tempSettings = pickle.load(open(config, "rb"))
-urls = "/usr/bin/tempsensor/urlConfig"
+urls = "{}}/urlConfig".format(cwd)
 urlConfig = pickle.load(open(urls, "rb"))
 
 # Setup temp sensor
