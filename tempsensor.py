@@ -41,8 +41,8 @@ lcd = LCD.Adafruit_RGBCharLCD(lcd_rs, lcd_en, lcd_d4, lcd_d5, lcd_d6, lcd_d7,
 # Get saved settings
 config = "/usr/bin/tempsensor/config"
 tempSettings = pickle.load(open(config, "rb"))
-urls = "/usr/bin/tempsensor/urls"
-urlConfig = pickle.low(open(urls, "rb"))
+urls = "/usr/bin/tempsensor/urlConfig"
+urlConfig = pickle.load(open(urls, "rb"))
 
 # Setup temp sensor
 os.system('modprobe w1-gpio')
@@ -84,47 +84,54 @@ server.bind('tcp://0.0.0.0:4242')
 def setTemp(temp):
     global tempSettings
     tempSettings['preferredTemp'] = temp
-    logging.info('Setting temp to {}'.format(temp))
+    logging.info('{}: Setting temp to {}'.format(datetime.now(), temp))
     pickle.dump(tempSettings, open(config, "wb"))
 
 def getTemp():
     global tempSettings
-    logging.info("Pref Temp: {}".format(tempSettings['preferredTemp']))
+    logging.info("{}: Pref Temp: {}".format(datetime.now(), tempSettings['preferredTemp']))
     return tempSettings['preferredTemp']
 
 def setFanMode(fanMode):
     global tempSettings
     tempSettings['fanMode'] = fanMode
-    logging.info("Setting fan state to: {}".format(fanMode))
+    logging.info("{}: Setting fan state to: {}".format(datetime.now(), fanMode))
     pickle.dump(tempSettings, open(config, "wb"))
 
 def getFanMode():
     global tempSettings
-    logging.info("Fan State: {}".format(tempSettings['fanMode']))
+    logging.info("{}: Fan State: {}".format(datetime.now(), tempSettings['fanMode']))
     return tempSettings['fanMode']
 
 def getMode():
     global tempSettings
-    logging.info("Mode: {}".format(tempSettings['mode']))
+    logging.info("{}: Mode: {}".format(datetime.now(), tempSettings['mode']))
     return tempSettings['mode']
 
 def setMode(newMode):
     global tempSettings
     tempSettings['mode'] = newMode
-    logging.info('Setting mode to {}'.format(newMode))
+    logging.info('{}: Setting mode to {}'.format(datetime.now(), newMode))
     pickle.dump(tempSettings, open(config, "wb"))
 
 def getFanState():
     state = 'auto'
     return state
 
-def getStates(state):
+def getStates():
     states = {}
-    states['fan'] = state % 10
-    state /= 10
-    states['cool'] = state % 10
-    state /= 10
-    states['heat'] = state
+    response = requests.get(urlConfig['status'])
+    if 'result' in response.json():
+        state = response.json()['result'];
+        states['fan'] = state % 10
+        state /= 10
+        states['cool'] = state % 10
+        state /= 10
+        states['heat'] = state
+    else:
+        states['fan'] = -1
+        states['cool'] = -1
+        state['heat'] = -1
     return states
 
 def read_temp_raw():
@@ -146,118 +153,124 @@ def read_temp():
         logging.info('{}: Temp read: {}'.format(datetime.now(), temp_f))
         return {'c':temp_c, 'f':temp_f}
 
-def start():
-    response = requests.get(urlConfig['status'])
-    state = {}
-    resp = response.json()
-    if 'result' in resp:
-        state = getStates(resp['result'])
-        if state['fan'] != 0 and tempSettings['mode'] == 'off':
-            data = {"params": "off"}
-            response = requests.post(urlConfig['url'], data=data)
-            resp = response.json()
-            if 'return_value' not in resp:
-                logging.error('Unable to shut off unit')
-                logging.error('Response: {}'.format(response.json()))
-    else:
-        logging.error('Unabled to get unit status')
-    lcd.clear()
-    lcd.set_color(0.0, 1.0, 0.0)
+def start(waiting, wait):
+    try:
+        shutDown(waiting, wait)
+    except requests.ConnectionError:
+        logging.error('Unable to resolve host')
+    except:
+        logging.error('An unknow error has occurred:', sys.exc_info()[0])
+        raise
     gevent.spawn(server.run)
     lcd.clear()
     lcd.message('Starting up')
-    logging.info('Starting up')
+    logging.info('{}: Starting up'.format(datetime.now()))
     time.sleep(60.0)
 
-def shutDown(running, waiting):
+def shutDown(waiting, wait):
     lcd.clear()
     lcd.set_color(0.0, 1.0, 0.0)
     lcd.message('Shutting Off')
-    logging.info('Shutting Off')
+    logging.info('{}: Shutting Off'.format(datetime.now()))
     time.sleep(1.0)
     data = {"params": "off"}
-    response = requests.post(urlConfig['url'], data=data)
+    response = requests.post(urlConfig['switch'], data=data)
     resp = response.json()
-    if resp and 'return_value' in resp.keys() and resp['return_value'] == -1:
-        running = False
+    if response.status_code == requests.codes.ok and resp and 'return_value' in resp.keys() and resp['return_value'] == -1:
         wait = time.time()
         waiting = True
-        logging.info('Shut off at: {}'.format(datetime.now()))
+        logging.info('{}: Shutting off'.format(datetime.now()))
     else:
-        logging.error('Response: {}'.format(response.json()))
-    return running, waiting
+        logging.error('{}: Response: {}'.format(datetime.now(), response.json()))
+    return waiting, wait
+
+def startCool(waiting):
+    lcd.clear()
+    lcd.set_color(0.0, 0.0, 1.0)
+    lcd.message('Starting AC')
+    logging.info('{}: Starting AC'.format(datetime.now()))
+    time.sleep(1.0)
+    data = {"params": "cool"}
+    response = requests.post(urlConfig['switch'], data=data)
+    resp = response.json()
+    if resp and 'return_value' in resp.keys() and resp['return_value'] == 1:
+        logging.info('{}: Started cooling'.format(datetime.now()))
+    else:
+        logging.error('{}: Response: {}'.format(datetime.now(), response.json()))
+    return waiting
+
+def startHeat(waiting):
+    lcd.clear()
+    lcd.set_color(1.0, 0.0, 0.0)
+    lcd.message('Starting Heater')
+    logging.info('{}: Starting Heater'.format(datetime.now()))
+    time.sleep(1.0)
+    data = {"params": "heat"}
+    response = requests.post(urlConfig['switch'], data=data)
+    resp = response.json()
+    if resp and 'return_value' in resp.keys() and resp['return_value'] == 0:
+        logging.info('{}: Started heating'.format(datetime.now()))
+    else:
+        logging.error('{}: Response: {}'.format(datetime.now(), response.json()))
+    return waiting
+
+def waitFiveMins(waiting, wait):
+    waitTime = time.time()
+    remaining = (300 - (waitTime - wait)) / 60
+    logging.info('{}: Time remaining: {:.2f} minutes'.format(datetime.now(), remaining))
+    if waitTime - wait >= 300:
+        waiting = False
+    return waiting
 
 def stat():
-    start()
-    wait = time.time()
     waiting = False
-    running = False
+    wait = time.time()
+    start(waiting, wait)
     while True:
-        state = {}
+        state = getStates()
         temp = read_temp()
         preferred = getTemp()
         tempMode = getMode()
         if waiting == False:
             if temp['f'] >= preferred - 1 and tempMode == 'cool':
-                if running == False:
-                    lcd.clear()
-                    lcd.set_color(0.0, 0.0, 1.0)
-                    lcd.message('Starting AC')
-                    logging.info('Starting AC')
-                    time.sleep(1.0)
-                    data = {"params": "cool"}
-                    response = requests.post(urlConfig['url'], data=data)
-                    resp = response.json()
-                    if resp and 'return_value' in resp.keys() and resp['return_value'] == 1:
-                        response = requests.get(urlConfig['status'])
-                        if 'result' in response.json():
-                            state = getStates(response.json()['result'])
-                            if state['cool'] == 1 and state['fan'] == 1:
-                                running = True
-                                logging.info('Started cooling at {}'.format(datetime.now()))
-                        else:
-                            logging.error('Unable to get unit status')
-                            logging.error('Response: {}'.format(response.json()))
-                    else:
-                        logging.error('Response: {}'.format(response.json()))
+                if state['cool'] == 0:
+                    try:
+                        waiting = startCool(waiting)
+                    except requests.ConnectionError:
+                        logging.error('Unable to resolve host')
+                    except:
+                        logging.error('An unknow error has occurred:', sys.exc_info()[0])
+                        raise
             elif temp['f'] <= preferred + 1 and tempMode == 'heat':
-                if running == False:
-                    lcd.clear()
-                    lcd.set_color(1.0, 0.0, 0.0)
-                    lcd.message('Starting Heater')
-                    logging.info('Starting Heater')
-                    time.sleep(1.0)
-                    data = {"params": "heat"}
-                    response = requests.post(urlConfig['url'], data=data)
-                    resp = response.json()
-                    if resp and 'return_value' in resp.keys() and resp['return_value'] == 0:
-                        response = requests.get(urlConfig['status'])
-                        if 'result' in response.json():
-                            state = getStates(response.json()['result'])
-                            if state['heat'] == 1 and state['fan'] == 1:
-                                running = True
-                                logging.info('Started heating at: {}'.format(datetime.now()))
-                        else:
-                            logging.error('Unable to get unit status')
-                            logging.error('Response: {}'.format(response.json()))
-                    else:
-                        logging.error('Response: {}'.format(response.json()))
+                if state['heat'] == 0:
+                    try:
+                        waiting = startHeat(waiting)
+                    except requests.ConnectionError:
+                        logging.error('Unable to resolve host')
+                    except:
+                        logging.error('An unknow error has occurred:', sys.exc_info()[0])
+                        raise
             else:
-                if running == True:
-                    running, waiting = shutDown(running, waiting)
+                if state['cool'] == 1 or state['heat'] == 1 or state['fan'] == 1:
+                    try:
+                        waiting, wait = shutDown(waiting, wait)
+                    except requests.ConnectionError:
+                        logging.error('Unable to resolve host')
+                    except:
+                        logging.error('An unknow error has occurred:', sys.exc_info()[0])
+                        raise
         else:
-            waitTime = time.time()
-            remaining = (300 - (waitTime - wait)) / 60
-            logging.info('{}: Time remaining: {:.2f} minutes'.format(datetime.now(), remaining))
-            if waitTime - wait >= 300:
-                waiting = False
+            if state['cool'] == 0 and state['heat'] == 0 and state['fan'] == 0:
+                waiting = waitFiveMins(waiting, wait)
+            else:
+                waiting, wait = shutDown(waiting, wait)
+                logging.error('{}: System has not shut down yet'.format(datetime.now()))
         fahrenheit =  '{0:0.2f}'.format(temp['f'])
         lcd.clear()
         lcd.message(fahrenheit + '\x01F')
         time.sleep(1.0)
         gevent.sleep(1)
-        logging.info('Running: {}'.format(running))
-        logging.info('Waiting: {}'.format(waiting))
+        logging.info('{}: Waiting: {}'.format(datetime.now(), waiting))
 
 try:
     stat()
@@ -266,5 +279,5 @@ except:
     logging.error(traceback.format_exc())
     lcd.message('Shutting Off')
     data = {"params": "off"}
-    response = requests.post(urlConfig['url'], data=data)
+    response = requests.post(urlConfig['switch'], data=data)
     pickle.dump(tempSettings, open(config, "wb"))
