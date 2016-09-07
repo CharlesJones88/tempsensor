@@ -15,9 +15,9 @@ import traceback
 from datetime import datetime
 import Adafruit_CharLCD as LCD
 
-cwd = os.getcwd()
+dir_path = os.path.dirname(os.path.realpath(__file__))
 # Setup logging
-logging.basicConfig(filename='{}/sensor.log'.format(cwd), filemode='w', level=logging.DEBUG)
+logging.basicConfig(filename='{}/sensor.log'.format(dir_path), filemode='w', level=logging.INFO)
 
 # Raspberry Pi configuration:
 lcd_rs = 27
@@ -40,9 +40,9 @@ lcd = LCD.Adafruit_RGBCharLCD(lcd_rs, lcd_en, lcd_d4, lcd_d5, lcd_d6, lcd_d7,
                               enable_pwm=True)
 
 # Get saved settings
-config = "{}}/config".format(cwd)
+config = "{}/config".format(dir_path)
 tempSettings = pickle.load(open(config, "rb"))
-urls = "{}}/urlConfig".format(cwd)
+urls = "{}/urlConfig".format(dir_path)
 urlConfig = pickle.load(open(urls, "rb"))
 
 # Setup temp sensor
@@ -132,7 +132,7 @@ def getStates():
     else:
         states['fan'] = -1
         states['cool'] = -1
-        state['heat'] = -1
+        states['heat'] = -1
     return states
 
 def read_temp_raw():
@@ -177,10 +177,9 @@ def shutDown(waiting, wait):
     data = {"params": "off"}
     response = requests.post(urlConfig['switch'], data=data)
     resp = response.json()
-    if response.status_code == requests.codes.ok and resp and 'return_value' in resp.keys() and resp['return_value'] == -1:
+    if response.status_code == requests.codes.ok and 'return_value' in resp.keys() and resp['return_value'] == -1:
         wait = time.time()
         waiting = True
-        logging.info('{}: Shutting off'.format(datetime.now()))
     else:
         logging.error('{}: Response: {}'.format(datetime.now(), response.json()))
     return waiting, wait
@@ -227,11 +226,15 @@ def stat():
     waiting = False
     wait = time.time()
     start(waiting, wait)
+    state = getStates()
+    interval = time.time()
     while True:
-        state = getStates()
         temp = read_temp()
         preferred = getTemp()
         tempMode = getMode()
+        if time.time() - interval > 60:
+            state = getStates()
+            interval = time.time()
         if waiting == False:
             if temp['f'] >= preferred - 1 and tempMode == 'cool':
                 if state['cool'] == 0:
@@ -252,7 +255,7 @@ def stat():
                         logging.error('An unknow error has occurred:', sys.exc_info()[0])
                         raise
             else:
-                if state['cool'] == 1 or state['heat'] == 1 or state['fan'] == 1:
+                if state['cool'] == 1 or state['heat'] == 1:
                     try:
                         waiting, wait = shutDown(waiting, wait)
                     except requests.ConnectionError:
@@ -271,7 +274,6 @@ def stat():
         lcd.message(fahrenheit + '\x01F')
         time.sleep(1.0)
         gevent.sleep(1)
-        logging.info('{}: Waiting: {}'.format(datetime.now(), waiting))
 
 try:
     stat()
