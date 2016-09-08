@@ -121,18 +121,24 @@ def getFanState():
 
 def getStates():
     states = {}
-    response = requests.get(urlConfig['status'])
-    if 'result' in response.json():
-        state = response.json()['result'];
-        states['fan'] = state % 10
-        state /= 10
-        states['cool'] = state % 10
-        state /= 10
-        states['heat'] = state
-    else:
-        states['fan'] = -1
-        states['cool'] = -1
-        states['heat'] = -1
+    try:
+        response = requests.get(urlConfig['status'])
+        if 'result' in response.json():
+            state = response.json()['result'];
+            states['fan'] = state % 10
+            state /= 10
+            states['cool'] = state % 10
+            state /= 10
+            states['heat'] = state
+        else:
+            states['fan'] = -1
+            states['cool'] = -1
+            states['heat'] = -1
+    except requests.SSLError as sslErr:
+        logging.error('An unkown ssl error has occurred: ', sslErr.msg)
+    except:
+        logging.error(sys.exc_info()[0])
+        logging.error(traceback.format_exc())
     return states
 
 def read_temp_raw():
