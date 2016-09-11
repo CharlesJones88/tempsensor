@@ -12,6 +12,7 @@ import gevent
 import pickle
 import time
 import traceback
+import ssl
 from datetime import datetime
 import Adafruit_CharLCD as LCD
 
@@ -134,7 +135,7 @@ def getStates():
             states['fan'] = -1
             states['cool'] = -1
             states['heat'] = -1
-    except requests.SSLError as sslErr:
+    except ssl.SSLError as sslErr:
         logging.error('An unkown ssl error has occurred: ', sslErr.msg)
     except:
         logging.error(sys.exc_info()[0])
