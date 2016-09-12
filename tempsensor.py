@@ -137,9 +137,15 @@ def getStates():
             states['heat'] = -1
     except ssl.SSLError as sslErr:
         logging.error('An unkown ssl error has occurred: ', sslErr.msg)
+        states['fan'] = -1
+        states['cool'] = -1
+        states['heat'] = -1
     except:
         logging.error(sys.exc_info()[0])
         logging.error(traceback.format_exc())
+        states['fan'] = -1
+        states['cool'] = -1
+        states['heat'] = -1
     return states
 
 def read_temp_raw():
